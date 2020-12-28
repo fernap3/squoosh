@@ -398,29 +398,8 @@ export const codecs = {
       };
     },
     enc: async () => {
-      await pngEncDecPromise;
-      await oxipngPromise;
-      return {
-        encode: (buffer, width, height, opts) => {
-          // must return a Uint8Array
-        },
-      };
+      throw new Error('SVG output is not supported');
     },
-    defaultEncoderOptions: {
-      // minQuantizer: 33,
-      // maxQuantizer: 63,
-      // minQuantizerAlpha: 33,
-      // maxQuantizerAlpha: 63,
-      // tileColsLog2: 0,
-      // tileRowsLog2: 0,
-      // speed: 8,
-      // subsample: 1,
-    },
-    // autoOptimize: {
-    //   option: 'maxQuantizer',
-    //   min: 0,
-    //   max: 62,
-    // },
   },
   jxl: {
     name: 'JPEG-XL',
