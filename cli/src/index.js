@@ -38,7 +38,7 @@ async function decodeFile(file) {
   if (!key) {
     throw Error(`${file} has an unsupported format`);
   }
-  const rgba = (await supportedFormats[key].dec()).decode(
+  const rgba = await (await supportedFormats[key].dec()).decode(
     new Uint8Array(buffer),
   );
   return {

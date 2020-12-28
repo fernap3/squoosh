@@ -19,6 +19,10 @@ import avifEncWasm from 'asset-url:../../codecs/avif/enc/avif_node_enc.wasm';
 import avifDec from '../../codecs/avif/dec/avif_node_dec.js';
 import avifDecWasm from 'asset-url:../../codecs/avif/dec/avif_node_dec.wasm';
 
+// SVG
+// import puppeteer from "puppeteer";
+const puppeteer = require('puppeteer');
+
 // JXL
 import jxlEnc from '../../codecs/jxl/enc/jxl_node_enc.js';
 import jxlEncWasm from 'asset-url:../../codecs/jxl/enc/jxl_node_enc.wasm';
@@ -288,6 +292,176 @@ export const codecs = {
       max: 62,
     },
   },
+  svg: {
+    name: 'SVG',
+    extension: 'svg',
+    detectors: [/^<svg/], // This will certainly break if there are comments or other markup that come before the svg tag
+    dec: async () => {
+      const testImageData = new Uint8Array([
+        255,
+        0,
+        0,
+        255,
+        255,
+        0,
+        0,
+        255,
+        255,
+        0,
+        0,
+        255,
+        0,
+        255,
+        0,
+        255,
+        0,
+        255,
+        0,
+        255,
+        0,
+        255,
+        0,
+        255,
+        0,
+        0,
+        255,
+        255,
+        0,
+        0,
+        255,
+        255,
+        0,
+        0,
+        255,
+        255,
+      ]);
+
+      const browser = await puppeteer.launch({
+        headless: false,
+        devtools: true,
+      });
+      const page = await browser.newPage();
+
+      console.log('Browser page loaded');
+
+      return {
+        decode: async (data) => {
+          const svgText = new TextDecoder().decode(data);
+
+          const result = await page.evaluate(async (svgText) => {
+            function readBinaryStringFromArrayBuffer(arrayBuffer) {
+              return new Promise((resolve, reject) => {
+                var reader = new FileReader();
+
+                reader.onload = function (event) {
+                  resolve(event.target.result);
+                };
+                reader.onerror = function (event) {
+                  reject(event.target.error);
+                };
+                reader.readAsBinaryString(
+                  new Blob([arrayBuffer], { type: 'application/octet-stream' }),
+                );
+              });
+            }
+
+            async function decodeImage(url) {
+              const img = new Image();
+              img.decoding = 'async';
+              img.src = url;
+              const loaded = new Promise((resolve, reject) => {
+                img.onload = () => resolve();
+                // img.onerror = () => reject(Error('Image loading error'));
+              });
+
+              if (img.decode) {
+                // Nice off-thread way supported in Safari/Chrome.
+                // Safari throws on decode if the source is SVG.
+                // https://bugs.webkit.org/show_bug.cgi?id=188347
+                await img.decode().catch(() => null);
+              }
+
+              // Always await loaded, as we may have bailed due to the Safari bug above.
+              await loaded;
+              return img;
+            }
+
+            async function blobToImg(blob) {
+              const url = URL.createObjectURL(blob);
+
+              try {
+                return await decodeImage(url);
+              } finally {
+                URL.revokeObjectURL(url);
+              }
+            }
+
+            const svgBytes = new TextEncoder().encode(svgText);
+
+            const image = await blobToImg(
+              new Blob([svgBytes], { type: 'image/svg+xml' }),
+            );
+            console.log(image);
+            // const svg = document.querySelector("svg");
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 516;
+            document.body.appendChild(canvas);
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+
+            const imageData = context.getImageData(0, 0, 512, 516);
+            // return new TextDecoder().decode("peter");
+            console.log(imageData);
+            return readBinaryStringFromArrayBuffer(imageData.data);
+
+            // if (svg.hasAttribute('width') && svg.hasAttribute('height')) {
+            //   return blobToImg(blob);
+            // }
+
+            // const viewBox = svg.getAttribute('viewBox');
+            // if (viewBox === null) throw Error('SVG must have width/height or viewBox');
+
+            // const viewboxParts = viewBox.split(/\s+/);
+            // svg.setAttribute('width', viewboxParts[2]);
+            // svg.setAttribute('height', viewboxParts[3]);
+
+            // const serializer = new XMLSerializer();
+            // const newSource = serializer.serializeToString(document);
+            // return blobToImg(new Blob([newSource], { type: 'image/svg+xml' }));
+          }, svgText);
+
+          const pixelBytes = new Uint8Array(Buffer.from(result, 'binary'));
+
+          return new ImageData(pixelBytes, 512, 516);
+        },
+      };
+    },
+    enc: async () => {
+      await pngEncDecPromise;
+      await oxipngPromise;
+      return {
+        encode: (buffer, width, height, opts) => {
+          // must return a Uint8Array
+        },
+      };
+    },
+    defaultEncoderOptions: {
+      // minQuantizer: 33,
+      // maxQuantizer: 63,
+      // minQuantizerAlpha: 33,
+      // maxQuantizerAlpha: 63,
+      // tileColsLog2: 0,
+      // tileRowsLog2: 0,
+      // speed: 8,
+      // subsample: 1,
+    },
+    // autoOptimize: {
+    //   option: 'maxQuantizer',
+    //   min: 0,
+    //   max: 62,
+    // },
+  },
   jxl: {
     name: 'JPEG-XL',
     extension: 'jxl',
@@ -344,7 +518,11 @@ export const codecs = {
       await oxipngPromise;
       return {
         encode: (buffer, width, height, opts) => {
-          const simplePng = pngEncDec.encode(new Uint8Array(buffer), width, height);
+          const simplePng = pngEncDec.encode(
+            new Uint8Array(buffer),
+            width,
+            height,
+          );
           return oxipng.optimise(simplePng, opts.level);
         },
       };
