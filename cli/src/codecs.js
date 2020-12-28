@@ -297,143 +297,103 @@ export const codecs = {
     extension: 'svg',
     detectors: [/^<svg/], // This will certainly break if there are comments or other markup that come before the svg tag
     dec: async () => {
-      const testImageData = new Uint8Array([
-        255,
-        0,
-        0,
-        255,
-        255,
-        0,
-        0,
-        255,
-        255,
-        0,
-        0,
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
-        255,
-        0,
-        0,
-        255,
-        255,
-        0,
-        0,
-        255,
-        255,
-        0,
-        0,
-        255,
-        255,
-      ]);
-
-      const browser = await puppeteer.launch({
-        headless: false,
-        devtools: true,
-      });
+      const browser = await puppeteer.launch();
       const page = await browser.newPage();
-
-      console.log('Browser page loaded');
 
       return {
         decode: async (data) => {
-          const svgText = new TextDecoder().decode(data);
+          let puppeteerResult;
+          try {
+            const svgText = new TextDecoder().decode(data);
+            puppeteerResult = await page.evaluate(async (svgText) => {
+              function readBinaryStringFromArrayBuffer(arrayBuffer) {
+                return new Promise((resolve, reject) => {
+                  var reader = new FileReader();
 
-          const result = await page.evaluate(async (svgText) => {
-            function readBinaryStringFromArrayBuffer(arrayBuffer) {
-              return new Promise((resolve, reject) => {
-                var reader = new FileReader();
-
-                reader.onload = function (event) {
-                  resolve(event.target.result);
-                };
-                reader.onerror = function (event) {
-                  reject(event.target.error);
-                };
-                reader.readAsBinaryString(
-                  new Blob([arrayBuffer], { type: 'application/octet-stream' }),
-                );
-              });
-            }
-
-            async function decodeImage(url) {
-              const img = new Image();
-              img.decoding = 'async';
-              img.src = url;
-              const loaded = new Promise((resolve, reject) => {
-                img.onload = () => resolve();
-                // img.onerror = () => reject(Error('Image loading error'));
-              });
-
-              if (img.decode) {
-                // Nice off-thread way supported in Safari/Chrome.
-                // Safari throws on decode if the source is SVG.
-                // https://bugs.webkit.org/show_bug.cgi?id=188347
-                await img.decode().catch(() => null);
+                  reader.onload = function (event) {
+                    resolve(event.target.result);
+                  };
+                  reader.onerror = function (event) {
+                    reject(event.target.error);
+                  };
+                  reader.readAsBinaryString(
+                    new Blob([arrayBuffer], {
+                      type: 'application/octet-stream',
+                    }),
+                  );
+                });
               }
 
-              // Always await loaded, as we may have bailed due to the Safari bug above.
-              await loaded;
-              return img;
-            }
+              async function decodeImage(url) {
+                const img = new Image();
+                img.decoding = 'async';
+                img.src = url;
+                const loaded = new Promise((resolve, reject) => {
+                  img.onload = () => resolve();
+                  // img.onerror = () => reject(Error('Image loading error'));
+                });
 
-            async function blobToImg(blob) {
-              const url = URL.createObjectURL(blob);
+                if (img.decode) {
+                  // Nice off-thread way supported in Safari/Chrome.
+                  // Safari throws on decode if the source is SVG.
+                  // https://bugs.webkit.org/show_bug.cgi?id=188347
+                  await img.decode().catch(() => null);
+                }
 
-              try {
-                return await decodeImage(url);
-              } finally {
-                URL.revokeObjectURL(url);
+                // Always await loaded, as we may have bailed due to the Safari bug above.
+                await loaded;
+                return img;
               }
-            }
 
-            const svgBytes = new TextEncoder().encode(svgText);
+              async function blobToImg(blob) {
+                const url = URL.createObjectURL(blob);
 
-            const image = await blobToImg(
-              new Blob([svgBytes], { type: 'image/svg+xml' }),
-            );
-            console.log(image);
-            // const svg = document.querySelector("svg");
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 516;
-            document.body.appendChild(canvas);
-            const context = canvas.getContext('2d');
-            context.drawImage(image, 0, 0);
+                try {
+                  return await decodeImage(url);
+                } finally {
+                  URL.revokeObjectURL(url);
+                }
+              }
 
-            const imageData = context.getImageData(0, 0, 512, 516);
-            // return new TextDecoder().decode("peter");
-            console.log(imageData);
-            return readBinaryStringFromArrayBuffer(imageData.data);
+              const svgBytes = new TextEncoder().encode(svgText);
 
-            // if (svg.hasAttribute('width') && svg.hasAttribute('height')) {
-            //   return blobToImg(blob);
-            // }
+              const image = await blobToImg(
+                new Blob([svgBytes], { type: 'image/svg+xml' }),
+              );
 
-            // const viewBox = svg.getAttribute('viewBox');
-            // if (viewBox === null) throw Error('SVG must have width/height or viewBox');
+              const canvas = document.createElement('canvas');
+              canvas.width = image.width;
+              canvas.height = image.height;
+              document.body.appendChild(canvas);
+              const context = canvas.getContext('2d');
+              context.drawImage(image, 0, 0);
 
-            // const viewboxParts = viewBox.split(/\s+/);
-            // svg.setAttribute('width', viewboxParts[2]);
-            // svg.setAttribute('height', viewboxParts[3]);
+              const imageData = context.getImageData(
+                0,
+                0,
+                image.width,
+                image.height,
+              );
+              return {
+                width: image.width,
+                height: image.height,
+                encodedData: await readBinaryStringFromArrayBuffer(
+                  imageData.data,
+                ),
+              };
+            }, svgText);
+          } finally {
+            page.close();
+          }
 
-            // const serializer = new XMLSerializer();
-            // const newSource = serializer.serializeToString(document);
-            // return blobToImg(new Blob([newSource], { type: 'image/svg+xml' }));
-          }, svgText);
-
-          const pixelBytes = new Uint8Array(Buffer.from(result, 'binary'));
-
-          return new ImageData(pixelBytes, 512, 516);
+          const pixelBytes = new Uint8Array(
+            Buffer.from(puppeteerResult.encodedData, 'binary'),
+          );
+          return new ImageData(
+            pixelBytes,
+            puppeteerResult.width,
+            puppeteerResult.height,
+          );
         },
       };
     },
